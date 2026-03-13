@@ -1,0 +1,17 @@
+.{
+    .name = .sdl_gpu,
+    .version = "0.0.1",
+    .dependencies = .{
+        .zul = .{
+            .url = "../zul/",
+            .hash = "zul-0.0.0-7StIXosdAAAJhDev1ZrzHMaw4UpL6ITMWSZqt0J0nq1T",
+        },
+    },
+    .minimum_zig_version = "0.15.2",
+    .paths = .{
+        "build.zig",
+        "build_shaders.zig",
+        "src",
+    },
+    .fingerprint = 0x5eedfcdc9274925d,
+}
