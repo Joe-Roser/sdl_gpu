@@ -1,13 +1,19 @@
 const std = @import("std");
 const zul = @import("zul");
+const zalg = @import("zalg");
 pub const c = @cImport({
     @cInclude("SDL3/SDL.h");
 });
 
 const Logger = zul.monitoring.Logger;
+const Mat = zalg.Mat4;
 
 const vert_shader: []const u8 = @embedFile("shaders/out/shader.vert.spv");
 const frag_shader: []const u8 = @embedFile("shaders/out/shader.frag.spv");
+
+const UBO = struct {
+    mvp: Mat,
+};
 
 // Helper function to check all SDL errors
 fn check_err(b: bool) !void {
@@ -49,13 +55,14 @@ fn wrapped_log(userdata: ?*anyopaque, category: c_int, priority: c.SDL_LogPriori
     log.plain("[SDL: {s}] {s}: {s}", .{ cat, level, msg }) catch std.debug.print("Logger failed", .{});
 }
 
-fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderStage) !*c.SDL_GPUShader {
+fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderStage, num_uniform_buffers: u32) !*c.SDL_GPUShader {
     const vert_create_info: c.SDL_GPUShaderCreateInfo = .{
         .code_size = code.len,
         .code = code.ptr,
         .entrypoint = "main",
         .format = c.SDL_GPU_SHADERFORMAT_SPIRV,
         .stage = stage,
+        .num_uniform_buffers = num_uniform_buffers,
     };
     return c.SDL_CreateGPUShader(gpu, &vert_create_info) orelse error.CreateShaderFailed;
 }
@@ -95,8 +102,8 @@ pub fn main() !void {
 
     const pipeline = pipeline: {
         // Create Shaders
-        const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX);
-        const fragment_shader = try load_shader(gpu, frag_shader, c.SDL_GPU_SHADERSTAGE_FRAGMENT);
+        const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1);
+        const fragment_shader = try load_shader(gpu, frag_shader, c.SDL_GPU_SHADERSTAGE_FRAGMENT, 0);
         defer c.SDL_ReleaseGPUShader(gpu, vertex_shader);
         defer c.SDL_ReleaseGPUShader(gpu, fragment_shader);
 
@@ -118,9 +125,27 @@ pub fn main() !void {
         break :pipeline c.SDL_CreateGPUGraphicsPipeline(gpu, &pipeline_info) orelse return error.CreatePipelineFailed;
     };
 
-    try log.info("Starting main loop", .{});
+    // Setting up the projection matrix
+    var w: i32 = undefined;
+    var h: i32 = undefined;
+    try check_err(
+        c.SDL_GetWindowSize(window, &w, &h),
+    );
+    const x: f32 = @floatFromInt(w);
+    const y: f32 = @floatFromInt(h);
+    const proj_mat = Mat.perspective(70, x / y, 0.0001, 1000);
+    const trans_mat = Mat.fromTranslate(.{ .data = .{ 0, 0, -5 } });
 
+    const rotation_speed = 90;
+    var rotation: f32 = 0.0; // In Degrees
+
+    try log.info("Starting main loop", .{});
+    var last_ticks = c.SDL_GetTicks();
     mainloop: while (true) {
+        const this_ticks = c.SDL_GetTicks();
+        const dt = @as(f32, @floatFromInt(this_ticks - last_ticks)) / 1000;
+        last_ticks = this_ticks;
+
         // Process Events
         var event: c.SDL_Event = undefined;
         while (c.SDL_PollEvent(&event)) {
@@ -129,6 +154,17 @@ pub fn main() !void {
                 else => continue,
             }
         }
+
+        rotation += dt * rotation_speed;
+
+        const model_mat = trans_mat.mul(
+            Mat.fromRotation(rotation, .{ .data = [_]f32{ 0, 1, 0 } }),
+        );
+        const ubo: UBO = .{
+            .mvp = proj_mat.mul(
+                model_mat,
+            ),
+        };
 
         // Render
         // - Aquire Command Buffer
@@ -152,9 +188,11 @@ pub fn main() !void {
         // - Draw Stuff
         // - - Bind Pipeline
         c.SDL_BindGPUGraphicsPipeline(render_pass, pipeline);
+
         // - - Bind Vertex Data
 
         // - - Bind Uniform Data
+        c.SDL_PushGPUVertexUniformData(cmd_buf, 0, &ubo, @sizeOf(UBO));
 
         // - - Draw Calls
         c.SDL_DrawGPUPrimitives(render_pass, 3, 1, 0, 0);

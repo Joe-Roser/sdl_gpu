@@ -7,6 +7,8 @@ pub fn build(b: *Build) void {
 
     const zul = b.dependency("zul", .{});
 
+    const zalg = b.dependency("zalg", .{});
+
     const exe = b.addExecutable(.{
         .name = "app",
         .root_module = b.createModule(.{
@@ -16,6 +18,7 @@ pub fn build(b: *Build) void {
             .link_libc = true,
             .imports = &.{
                 .{ .module = zul.module("zul"), .name = "zul" },
+                .{ .module = zalg.module("zalgebra"), .name = "zalg" },
             },
         }),
     });

@@ -6,6 +6,10 @@
             .url = "../zul/",
             .hash = "zul-0.0.0-7StIXosdAAAJhDev1ZrzHMaw4UpL6ITMWSZqt0J0nq1T",
         },
+        .zalg = .{
+            .url = "git+https://github.com/kooparse/zalgebra#fe19b7816f03d86d56d4fa62f943664edf5d367f",
+            .hash = "zalgebra-0.0.0-aaiVSrp2AQBLjd3lvhR0ILaVDHeqOpwNFCp0ZJHj0xhk",
+        },
     },
     .minimum_zig_version = "0.15.2",
     .paths = .{
