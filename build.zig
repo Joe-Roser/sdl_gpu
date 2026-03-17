@@ -11,7 +11,7 @@ pub fn build(b: *Build) void {
 
     const zalg = b.dependency("zalg", .{});
 
-    const shader_opt = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
+    const build_shaders = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
 
     const exe = b.addExecutable(.{
         .name = "app",
@@ -30,7 +30,7 @@ pub fn build(b: *Build) void {
     b.default_step.dependOn(&exe.step);
 
     // Building shaders depends on compile flag
-    if (with_shaders) exe.step.dependOn(&shader_opt.step);
+    if (with_shaders) exe.step.dependOn(&build_shaders.step);
 
     const run_step = b.step("run", "run the app");
     const run_exe = b.addRunArtifact(exe);
@@ -41,10 +41,5 @@ pub fn build(b: *Build) void {
     test_step.dependOn(&test_exe.step);
 
     const shader_step = b.step("shaders", "build all shaders");
-    const build_shaders = b.addExecutable(.{
-        .name = "build_shaders",
-        .root_module = b.createModule(.{ .root_source_file = b.path("build_shaders.zig"), .optimize = opt, .target = target }),
-    });
-    const run_build_shaders = b.addRunArtifact(build_shaders);
-    shader_step.dependOn(&run_build_shaders.step);
+    shader_step.dependOn(&build_shaders.step);
 }
