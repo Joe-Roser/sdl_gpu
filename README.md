@@ -31,3 +31,41 @@ Passing matricies should be done using column major order
 The fourth dimension of a matrix is used to carry a unit that allows for translations and other non-linear transformations.
 Apply model matrix, then projection. Usually, this is rotation first, then translation.
 
+# Lesson 3
+Vertex Attributes:
+Vertex attributes are values specific to the point defined.
+In the pipeline:
+- The GPU gets all the vertecies and defines the triangle
+- The GPU rasterises this, so generates all the relevant pixels
+- At the same time, for each pixel, the attribute is a weighted average of its distance to the corners and their colour
+- The fragment shader then uses these values
+You can use the `flat` keyword in glsl to stop the weighting of this value as its passed out of the 
+On Defining Vertex Attributes:
+- Define the desired vertex attributes
+- Make buffer descriptions and attributes
+    - These describe what the attribute looks like in an opaque way, and then describes the internal structure of it
+- Add these to the pipeline info
+
+On Using Vertex Attributes:
+- Create a Vertex Buffer
+- Upload the attributes
+    - Create a transfer buffer
+    - Map it to memory
+    - Copy vertex data to it
+    - Start a copy pass
+    - Upload transfer buffer to the gpu, into the vertex buffer
+- Bind the vertex buffer
+
+You can either upload once and reuse, or upload whenever you want.
+Because uploading the vbuf to the GPU requires gpu stuff, you need the command buffer.
+The binding of the vbuf should be done each draw
+
+Dont forget to clean up
+
+# Extra Research -- The Swaapchain
+The swapchain is a set of images or textures that the GPU uses to display frames
+The GPU renders into one image whilst another is being shown, then the shown one is "swapped".
+There can be many images ready to go, hence "chain".
+Without this, youd get screentearing, and the GPU and CPU may desync.
+
+

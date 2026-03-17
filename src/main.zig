@@ -6,13 +6,20 @@ pub const c = @cImport({
 });
 
 const Logger = zul.monitoring.Logger;
-const Mat = zalg.Mat4;
+const Vec3 = zalg.Vec3;
+const Vec4 = zalg.Vec4;
+const Mat4 = zalg.Mat4;
 
 const vert_shader: []const u8 = @embedFile("shaders/out/shader.vert.spv");
 const frag_shader: []const u8 = @embedFile("shaders/out/shader.frag.spv");
 
 const UBO = struct {
-    mvp: Mat,
+    mvp: Mat4,
+};
+
+const VertexData = struct {
+    position: Vec3,
+    color: Vec4,
 };
 
 // Helper function to check all SDL errors
@@ -56,7 +63,7 @@ fn wrapped_log(userdata: ?*anyopaque, category: c_int, priority: c.SDL_LogPriori
 }
 
 fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderStage, num_uniform_buffers: u32) !*c.SDL_GPUShader {
-    const vert_create_info: c.SDL_GPUShaderCreateInfo = .{
+    const create_info: c.SDL_GPUShaderCreateInfo = .{
         .code_size = code.len,
         .code = code.ptr,
         .entrypoint = "main",
@@ -64,7 +71,7 @@ fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderSt
         .stage = stage,
         .num_uniform_buffers = num_uniform_buffers,
     };
-    return c.SDL_CreateGPUShader(gpu, &vert_create_info) orelse error.CreateShaderFailed;
+    return c.SDL_CreateGPUShader(gpu, &create_info) orelse error.CreateShaderFailed;
 }
 
 // main
@@ -100,6 +107,12 @@ pub fn main() !void {
     try log.info("Setup complete", .{});
     try log.flush();
 
+    const vertecies: [3]VertexData = .{
+        .{ .position = .{ .data = .{ -0.5, -0.5, 0 } }, .color = .{ .data = .{ 1.0, 0.0, 0.0, 1.0 } } },
+        .{ .position = .{ .data = .{ 0, 0.5, 0 } }, .color = .{ .data = .{ 0.0, 1.0, 0.0, 1.0 } } },
+        .{ .position = .{ .data = .{ 0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } },
+    };
+
     const pipeline = pipeline: {
         // Create Shaders
         const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1);
@@ -109,17 +122,41 @@ pub fn main() !void {
 
         try log.info("Shaders loaded", .{});
 
-        // Create Shader Pipeline
-        const colour_target_description: [1]c.SDL_GPUColorTargetDescription = .{
-            .{ .format = c.SDL_GetGPUSwapchainTextureFormat(gpu, window) },
+        // Desrcibe the vertex buffers
+        const vertex_buf_descriptions = &[_]c.SDL_GPUVertexBufferDescription{
+            .{
+                .slot = 0,
+                .pitch = @sizeOf(VertexData),
+            },
         };
+        // Define what the vertex info for this pipelie looks like
+        const vertex_attrs = &[_]c.SDL_GPUVertexAttribute{
+            .{
+                .location = 0,
+                .format = c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT3,
+                .offset = @offsetOf(VertexData, "position"), // Using the fields from the input struct
+            },
+            .{
+                .location = 1,
+                .format = c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
+                .offset = @offsetOf(VertexData, "color"),
+            },
+        };
+
+        // Create Shader Pipeline
         const pipeline_info: c.SDL_GPUGraphicsPipelineCreateInfo = .{
             .vertex_shader = vertex_shader,
             .fragment_shader = fragment_shader,
             .primitive_type = c.SDL_GPU_PRIMITIVETYPE_TRIANGLELIST,
             .target_info = .{
                 .num_color_targets = 1,
-                .color_target_descriptions = &colour_target_description,
+                .color_target_descriptions = &.{ .format = c.SDL_GetGPUSwapchainTextureFormat(gpu, window) },
+            },
+            .vertex_input_state = .{
+                .num_vertex_buffers = vertex_buf_descriptions.len,
+                .vertex_buffer_descriptions = vertex_buf_descriptions,
+                .num_vertex_attributes = vertex_attrs.len,
+                .vertex_attributes = vertex_attrs,
             },
         };
         break :pipeline c.SDL_CreateGPUGraphicsPipeline(gpu, &pipeline_info) orelse return error.CreatePipelineFailed;
@@ -133,12 +170,57 @@ pub fn main() !void {
     );
     const x: f32 = @floatFromInt(w);
     const y: f32 = @floatFromInt(h);
-    const proj_mat = Mat.perspective(70, x / y, 0.0001, 1000);
-    const trans_mat = Mat.fromTranslate(.{ .data = .{ 0, 0, -5 } });
+    const proj_mat = Mat4.perspective(70, x / y, 0.0001, 1000);
+    const trans_mat = Mat4.fromTranslate(.{ .data = .{ 0, 0, -5 } });
 
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
+    // Creating vertex buffer
+    const vertex_buffer = c.SDL_CreateGPUBuffer(gpu, &.{
+        .usage = c.SDL_GPU_BUFFERUSAGE_VERTEX,
+        .size = vertecies.len * @sizeOf(VertexData),
+    }) orelse return error.CreateVBufFailed;
+    {
+        // Upload data to VBuf
+        // - Create Transfer Buf
+        const transfer_buffer = c.SDL_CreateGPUTransferBuffer(gpu, &.{
+            .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
+            .size = vertecies.len * @sizeOf(VertexData),
+        }) orelse return error.CreateTBufFailed;
+        defer c.SDL_ReleaseGPUTransferBuffer(gpu, transfer_buffer);
+
+        // - Map buffer to memory
+        const transfer_mem: *[vertecies.len]VertexData = @ptrCast(@alignCast(
+            c.SDL_MapGPUTransferBuffer(gpu, transfer_buffer, false) orelse return error.MapTBufFailed,
+        ));
+
+        // - Copy
+        std.mem.copyForwards(VertexData, transfer_mem, &vertecies);
+        c.SDL_UnmapGPUTransferBuffer(gpu, transfer_buffer);
+
+        // - Begin Copy Pass
+        const cmd_buf = c.SDL_AcquireGPUCommandBuffer(gpu) orelse return error.GetCmdBufFailed;
+        const copy_pass = c.SDL_BeginGPUCopyPass(cmd_buf) orelse return error.StartCopyPassFailed;
+
+        // - Invoke Upload Command
+        c.SDL_UploadToGPUBuffer(copy_pass, &.{
+            .transfer_buffer = transfer_buffer,
+            .offset = 0,
+        }, &.{
+            .buffer = vertex_buffer,
+            .offset = 0,
+            .size = vertecies.len * @sizeOf(VertexData),
+        }, false);
+
+        // - Endo Copy Pass and Submit
+        c.SDL_EndGPUCopyPass(copy_pass);
+        try check_err(
+            c.SDL_SubmitGPUCommandBuffer(cmd_buf),
+        );
+    }
+
+    // Main Loop
     try log.info("Starting main loop", .{});
     var last_ticks = c.SDL_GetTicks();
     mainloop: while (true) {
@@ -158,7 +240,7 @@ pub fn main() !void {
         rotation += dt * rotation_speed;
 
         const model_mat = trans_mat.mul(
-            Mat.fromRotation(rotation, .{ .data = [_]f32{ 0, 1, 0 } }),
+            Mat4.fromRotation(rotation, .{ .data = [_]f32{ 0, 1, 0 } }),
         );
         const ubo: UBO = .{
             .mvp = proj_mat.mul(
@@ -180,7 +262,7 @@ pub fn main() !void {
         const colour_target_info: c.SDL_GPUColorTargetInfo = .{
             .texture = swp_texture,
             .load_op = c.SDL_GPU_LOADOP_CLEAR,
-            .clear_color = .{ .r = 0, .g = 1, .b = 1, .a = 1 },
+            .clear_color = .{ .r = 0, .g = 0.2, .b = 0.4, .a = 1 },
             .store_op = c.SDL_GPU_STOREOP_STORE,
         };
         const render_pass = c.SDL_BeginGPURenderPass(cmd_buf, &colour_target_info, 1, null);
@@ -190,6 +272,10 @@ pub fn main() !void {
         c.SDL_BindGPUGraphicsPipeline(render_pass, pipeline);
 
         // - - Bind Vertex Data
+        c.SDL_BindGPUVertexBuffers(render_pass, 0, &.{
+            .offset = 0,
+            .buffer = vertex_buffer,
+        }, 1);
 
         // - - Bind Uniform Data
         c.SDL_PushGPUVertexUniformData(cmd_buf, 0, &ubo, @sizeOf(UBO));
