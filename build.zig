@@ -5,9 +5,13 @@ pub fn build(b: *Build) void {
     const target = b.standardTargetOptions(.{});
     const opt = b.standardOptimizeOption(.{});
 
+    const with_shaders = b.option(bool, "sh", "Build with shaders") orelse false;
+
     const zul = b.dependency("zul", .{});
 
     const zalg = b.dependency("zalg", .{});
+
+    const shader_opt = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
 
     const exe = b.addExecutable(.{
         .name = "app",
@@ -23,6 +27,10 @@ pub fn build(b: *Build) void {
         }),
     });
     exe.root_module.linkSystemLibrary("SDL3", .{});
+    b.default_step.dependOn(&exe.step);
+
+    // Building shaders depends on compile flag
+    if (with_shaders) exe.step.dependOn(&shader_opt.step);
 
     const run_step = b.step("run", "run the app");
     const run_exe = b.addRunArtifact(exe);
