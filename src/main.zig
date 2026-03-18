@@ -22,6 +22,14 @@ const VertexData = struct {
     color: Vec4,
 };
 
+const vertecies: [4]VertexData = .{
+    .{ .position = .{ .data = .{ -0.5, 0.5, 0 } }, .color = .{ .data = .{ 1.0, 0.0, 0.0, 1.0 } } }, // top left
+    .{ .position = .{ .data = .{ 0.5, 0.5, 0 } }, .color = .{ .data = .{ 0.0, 1.0, 0.0, 1.0 } } }, // top right
+    .{ .position = .{ .data = .{ -0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } }, // bottom left
+    .{ .position = .{ .data = .{ 0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } }, // bottom right
+};
+const indicies = [_]u16{ 0, 1, 2, 1, 3, 2 };
+
 // Helper function to check all SDL errors
 fn check_err(b: bool) !void {
     if (b) return;
@@ -104,15 +112,6 @@ pub fn main() !void {
     );
     try log.info("Window and GPU setup", .{});
 
-    try log.info("Setup complete", .{});
-    try log.flush();
-
-    const vertecies: [3]VertexData = .{
-        .{ .position = .{ .data = .{ -0.5, -0.5, 0 } }, .color = .{ .data = .{ 1.0, 0.0, 0.0, 1.0 } } },
-        .{ .position = .{ .data = .{ 0, 0.5, 0 } }, .color = .{ .data = .{ 0.0, 1.0, 0.0, 1.0 } } },
-        .{ .position = .{ .data = .{ 0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } },
-    };
-
     const pipeline = pipeline: {
         // Create Shaders
         const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1);
@@ -176,27 +175,37 @@ pub fn main() !void {
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
-    // Creating vertex buffer
+    // Creating vertex buffer and index buffer
+    const vertex_buffer_size = vertecies.len * @sizeOf(VertexData);
     const vertex_buffer = c.SDL_CreateGPUBuffer(gpu, &.{
         .usage = c.SDL_GPU_BUFFERUSAGE_VERTEX,
-        .size = vertecies.len * @sizeOf(VertexData),
+        .size = vertex_buffer_size,
     }) orelse return error.CreateVBufFailed;
+    const index_buffer_size = indicies.len * @sizeOf(u16);
+    const index_buffer = c.SDL_CreateGPUBuffer(gpu, &.{
+        .usage = c.SDL_GPU_BUFFERUSAGE_INDEX,
+        .size = index_buffer_size,
+    }) orelse return error.CreateIBufFailed;
     {
+        const buffer_size = index_buffer_size + vertex_buffer_size;
         // Upload data to VBuf
         // - Create Transfer Buf
         const transfer_buffer = c.SDL_CreateGPUTransferBuffer(gpu, &.{
             .usage = c.SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD,
-            .size = vertecies.len * @sizeOf(VertexData),
+            .size = buffer_size,
         }) orelse return error.CreateTBufFailed;
         defer c.SDL_ReleaseGPUTransferBuffer(gpu, transfer_buffer);
 
         // - Map buffer to memory
-        const transfer_mem: *[vertecies.len]VertexData = @ptrCast(@alignCast(
+        const transfer_mem: [*]u8 = @ptrCast(
             c.SDL_MapGPUTransferBuffer(gpu, transfer_buffer, false) orelse return error.MapTBufFailed,
-        ));
+        );
 
         // - Copy
-        std.mem.copyForwards(VertexData, transfer_mem, &vertecies);
+        const vertex_bytes = std.mem.sliceAsBytes(&vertecies);
+        std.mem.copyForwards(u8, transfer_mem[0..vertex_bytes.len], vertex_bytes);
+        const index_bytes = std.mem.sliceAsBytes(&indicies);
+        std.mem.copyForwards(u8, transfer_mem[vertex_bytes.len..buffer_size], index_bytes);
         c.SDL_UnmapGPUTransferBuffer(gpu, transfer_buffer);
 
         // - Begin Copy Pass
@@ -210,7 +219,15 @@ pub fn main() !void {
         }, &.{
             .buffer = vertex_buffer,
             .offset = 0,
-            .size = vertecies.len * @sizeOf(VertexData),
+            .size = vertex_buffer_size,
+        }, false);
+        c.SDL_UploadToGPUBuffer(copy_pass, &.{
+            .transfer_buffer = transfer_buffer,
+            .offset = vertex_buffer_size,
+        }, &.{
+            .buffer = index_buffer,
+            .offset = 0,
+            .size = index_buffer_size,
         }, false);
 
         // - Endo Copy Pass and Submit
@@ -219,6 +236,9 @@ pub fn main() !void {
             c.SDL_SubmitGPUCommandBuffer(cmd_buf),
         );
     }
+
+    try log.info("Setup complete", .{});
+    try log.flush();
 
     // Main Loop
     try log.info("Starting main loop", .{});
@@ -277,11 +297,17 @@ pub fn main() !void {
             .buffer = vertex_buffer,
         }, 1);
 
+        // Bind Index Buffer
+        c.SDL_BindGPUIndexBuffer(render_pass, &.{
+            .offset = 0,
+            .buffer = index_buffer,
+        }, c.SDL_GPU_INDEXELEMENTSIZE_16BIT);
+
         // - - Bind Uniform Data
         c.SDL_PushGPUVertexUniformData(cmd_buf, 0, &ubo, @sizeOf(UBO));
 
         // - - Draw Calls
-        c.SDL_DrawGPUPrimitives(render_pass, 3, 1, 0, 0);
+        c.SDL_DrawGPUIndexedPrimitives(render_pass, indicies.len, 1, 0, 0, 0);
 
         // - End Render Pass
         c.SDL_EndGPURenderPass(render_pass);
@@ -292,5 +318,6 @@ pub fn main() !void {
         try check_err(
             c.SDL_SubmitGPUCommandBuffer(cmd_buf),
         );
+        try log.flush();
     }
 }

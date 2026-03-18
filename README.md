@@ -39,7 +39,7 @@ In the pipeline:
 - The GPU rasterises this, so generates all the relevant pixels
 - At the same time, for each pixel, the attribute is a weighted average of its distance to the corners and their colour
 - The fragment shader then uses these values
-You can use the `flat` keyword in glsl to stop the weighting of this value as its passed out of the 
+You can use the `flat` keyword in glsl to stop the weighting of this value as its passed out of the rasterisation stage. This means all verticies will get the value of the first vertex.
 On Defining Vertex Attributes:
 - Define the desired vertex attributes
 - Make buffer descriptions and attributes
@@ -68,4 +68,14 @@ The GPU renders into one image whilst another is being shown, then the shown one
 There can be many images ready to go, hence "chain".
 Without this, youd get screentearing, and the GPU and CPU may desync.
 
-
+# Lesson 4
+When you have lots of shared verticies to generate more complex geometries, you might want to save space and reuse vertices. This is done using an index bufer
+- Make a index array
+- Make an index buffer
+- Upload the index buffer - This is done in the same way that the vertex buffer is uploaded
+    - Make a transfer buffer
+    - Map it to memory
+    - Copy data
+    - Do a copy pass from the transfer buffer to the index buffer
+    - This can all be done in the same pass as uploading the vertex buffer if smart
+- Bind the index buffer
