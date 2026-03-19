@@ -19,7 +19,6 @@ pub fn build(b: *Build) void {
             .root_source_file = b.path("src/main.zig"),
             .target = target,
             .optimize = opt,
-            .link_libc = true,
             .imports = &.{
                 .{ .module = zul.module("zul"), .name = "zul" },
                 .{ .module = zalg.module("zalgebra"), .name = "zalg" },
@@ -27,6 +26,8 @@ pub fn build(b: *Build) void {
         }),
     });
     exe.root_module.linkSystemLibrary("SDL3", .{});
+    exe.root_module.linkSystemLibrary("SDL3_image", .{});
+    exe.root_module.link_libc = true;
     b.default_step.dependOn(&exe.step);
 
     // Building shaders depends on compile flag

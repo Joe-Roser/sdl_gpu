@@ -3,9 +3,11 @@ const zul = @import("zul");
 const zalg = @import("zalg");
 pub const c = @cImport({
     @cInclude("SDL3/SDL.h");
+    @cInclude("SDL3_image/SDL_image.h");
 });
 
 const Logger = zul.monitoring.Logger;
+const Vec2 = zalg.Vec2;
 const Vec3 = zalg.Vec3;
 const Vec4 = zalg.Vec4;
 const Mat4 = zalg.Mat4;
@@ -17,16 +19,31 @@ const UBO = struct {
     mvp: Mat4,
 };
 
-const VertexData = struct {
-    position: Vec3,
-    color: Vec4,
-};
+const VertexData = struct { position: Vec3, color: Vec4, uv: Vec2 };
+
+const WHITE: Vec4 = .fromSlice(&.{ 1, 1, 1, 1 });
 
 const vertecies: [4]VertexData = .{
-    .{ .position = .{ .data = .{ -0.5, 0.5, 0 } }, .color = .{ .data = .{ 1.0, 0.0, 0.0, 1.0 } } }, // top left
-    .{ .position = .{ .data = .{ 0.5, 0.5, 0 } }, .color = .{ .data = .{ 0.0, 1.0, 0.0, 1.0 } } }, // top right
-    .{ .position = .{ .data = .{ -0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } }, // bottom left
-    .{ .position = .{ .data = .{ 0.5, -0.5, 0 } }, .color = .{ .data = .{ 0.0, 0.0, 1.0, 1.0 } } }, // bottom right
+    .{
+        .position = .fromSlice(&.{ -0.5, 0.5, 0 }),
+        .color = WHITE,
+        .uv = .fromSlice(&.{ 0, 0 }),
+    }, // top left
+    .{
+        .position = .fromSlice(&.{ 0.5, 0.5, 0 }),
+        .color = WHITE,
+        .uv = .fromSlice(&.{ 1, 0 }),
+    }, // top right
+    .{
+        .position = .fromSlice(&.{ -0.5, -0.5, 0 }),
+        .color = WHITE,
+        .uv = .fromSlice(&.{ 0, 1 }),
+    }, // bottom left
+    .{
+        .position = .fromSlice(&.{ 0.5, -0.5, 0 }),
+        .color = WHITE,
+        .uv = .fromSlice(&.{ 1, 1 }),
+    }, // bottom right
 };
 const indicies = [_]u16{ 0, 1, 2, 1, 3, 2 };
 
@@ -70,7 +87,7 @@ fn wrapped_log(userdata: ?*anyopaque, category: c_int, priority: c.SDL_LogPriori
     log.plain("[SDL: {s}] {s}: {s}", .{ cat, level, msg }) catch std.debug.print("Logger failed", .{});
 }
 
-fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderStage, num_uniform_buffers: u32) !*c.SDL_GPUShader {
+fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderStage, num_uniform_buffers: u32, num_samplers: u32) !*c.SDL_GPUShader {
     const create_info: c.SDL_GPUShaderCreateInfo = .{
         .code_size = code.len,
         .code = code.ptr,
@@ -78,6 +95,7 @@ fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderSt
         .format = c.SDL_GPU_SHADERFORMAT_SPIRV,
         .stage = stage,
         .num_uniform_buffers = num_uniform_buffers,
+        .num_samplers = num_samplers,
     };
     return c.SDL_CreateGPUShader(gpu, &create_info) orelse error.CreateShaderFailed;
 }
@@ -114,8 +132,8 @@ pub fn main() !void {
 
     const pipeline = pipeline: {
         // Create Shaders
-        const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1);
-        const fragment_shader = try load_shader(gpu, frag_shader, c.SDL_GPU_SHADERSTAGE_FRAGMENT, 0);
+        const vertex_shader = try load_shader(gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
+        const fragment_shader = try load_shader(gpu, frag_shader, c.SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1);
         defer c.SDL_ReleaseGPUShader(gpu, vertex_shader);
         defer c.SDL_ReleaseGPUShader(gpu, fragment_shader);
 
@@ -139,6 +157,11 @@ pub fn main() !void {
                 .location = 1,
                 .format = c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT4,
                 .offset = @offsetOf(VertexData, "color"),
+            },
+            .{
+                .location = 2,
+                .format = c.SDL_GPU_VERTEXELEMENTFORMAT_FLOAT2,
+                .offset = @offsetOf(VertexData, "uv"),
             },
         };
 
@@ -170,7 +193,7 @@ pub fn main() !void {
     const x: f32 = @floatFromInt(w);
     const y: f32 = @floatFromInt(h);
     const proj_mat = Mat4.perspective(70, x / y, 0.0001, 1000);
-    const trans_mat = Mat4.fromTranslate(.{ .data = .{ 0, 0, -5 } });
+    const trans_mat = Mat4.fromTranslate(.fromSlice(&.{ 0, 0, -2 }));
 
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
@@ -186,6 +209,10 @@ pub fn main() !void {
         .usage = c.SDL_GPU_BUFFERUSAGE_INDEX,
         .size = index_buffer_size,
     }) orelse return error.CreateIBufFailed;
+    var cobble_w: i32 = 0;
+    var cobble_h: i32 = 0;
+    var cobble_texture: *c.SDL_GPUTexture = undefined;
+    defer c.SDL_ReleaseGPUTexture(gpu, cobble_texture);
     {
         const buffer_size = index_buffer_size + vertex_buffer_size;
         // Upload data to VBuf
@@ -230,12 +257,17 @@ pub fn main() !void {
             .size = index_buffer_size,
         }, false);
 
-        // - Endo Copy Pass and Submit
+        cobble_texture = c.IMG_LoadGPUTexture(gpu, copy_pass, "assets/cobblestone.png", &cobble_w, &cobble_h) orelse return error.LoadTextureFailed;
+
+        // - End Copy Pass and Submit
         c.SDL_EndGPUCopyPass(copy_pass);
         try check_err(
             c.SDL_SubmitGPUCommandBuffer(cmd_buf),
         );
     }
+    try log.info("Primed GPU buffers", .{});
+
+    const sampler = c.SDL_CreateGPUSampler(gpu, &.{}) orelse return error.CreateSamplerFailed;
 
     try log.info("Setup complete", .{});
     try log.flush();
@@ -260,7 +292,7 @@ pub fn main() !void {
         rotation += dt * rotation_speed;
 
         const model_mat = trans_mat.mul(
-            Mat4.fromRotation(rotation, .{ .data = [_]f32{ 0, 1, 0 } }),
+            Mat4.fromRotation(rotation, .fromSlice(&[_]f32{ 0, 1, 0 })),
         );
         const ubo: UBO = .{
             .mvp = proj_mat.mul(
@@ -295,6 +327,12 @@ pub fn main() !void {
         c.SDL_BindGPUVertexBuffers(render_pass, 0, &.{
             .offset = 0,
             .buffer = vertex_buffer,
+        }, 1);
+
+        // Bind the texture sampler
+        c.SDL_BindGPUFragmentSamplers(render_pass, 0, &.{
+            .texture = cobble_texture,
+            .sampler = sampler,
         }, 1);
 
         // Bind Index Buffer
