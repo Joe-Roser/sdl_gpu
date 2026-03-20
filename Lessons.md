@@ -94,3 +94,19 @@ Remember to pass the texture coordinates to the fragment shader
 Remember to set the uniform and vertex data inputs in the fragment shader
 Use the texture function with the sampler and the coordinates inf the fragment shader, optional tinting by multiplying the output by colours passed in.
 
+# Lesson 6
+Here, we parsed and rendered a simplified obj file.
+
+## .obj files
+Obj files are given by lines.
+The first word of a line is a command.
+This is followed by data, and a newline.
+
+v - The vertecies - a Vec3 position and Vec3 Normal
+vt - The texture coordinates for the section
+f - The faces, given by indexing the vertex and texture coordinates (1 indexed)
+
+To render the file, transform into the vertex data we need and index array.
+Then the obj file can be dropped.
+
+

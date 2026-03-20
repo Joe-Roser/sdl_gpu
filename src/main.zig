@@ -1,6 +1,7 @@
 const std = @import("std");
 const zul = @import("zul");
 const zalg = @import("zalg");
+const obj = @import("obj.zig");
 pub const c = @cImport({
     @cInclude("SDL3/SDL.h");
     @cInclude("SDL3_image/SDL_image.h");
@@ -22,30 +23,6 @@ const UBO = struct {
 const VertexData = struct { position: Vec3, color: Vec4, uv: Vec2 };
 
 const WHITE: Vec4 = .fromSlice(&.{ 1, 1, 1, 1 });
-
-const vertecies: [4]VertexData = .{
-    .{
-        .position = .fromSlice(&.{ -0.5, 0.5, 0 }),
-        .color = WHITE,
-        .uv = .fromSlice(&.{ 0, 0 }),
-    }, // top left
-    .{
-        .position = .fromSlice(&.{ 0.5, 0.5, 0 }),
-        .color = WHITE,
-        .uv = .fromSlice(&.{ 1, 0 }),
-    }, // top right
-    .{
-        .position = .fromSlice(&.{ -0.5, -0.5, 0 }),
-        .color = WHITE,
-        .uv = .fromSlice(&.{ 0, 1 }),
-    }, // bottom left
-    .{
-        .position = .fromSlice(&.{ 0.5, -0.5, 0 }),
-        .color = WHITE,
-        .uv = .fromSlice(&.{ 1, 1 }),
-    }, // bottom right
-};
-const indicies = [_]u16{ 0, 1, 2, 1, 3, 2 };
 
 // Helper function to check all SDL errors
 fn check_err(b: bool) !void {
@@ -104,6 +81,10 @@ fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderSt
 //
 //
 pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    defer _ = gpa.deinit();
+    const alloc = gpa.allocator();
+
     // Setting up logging
     var stdout: std.fs.File = .stdout();
     var stdout_buf: [1024]u8 = undefined;
@@ -198,13 +179,32 @@ pub fn main() !void {
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
+    // Making the object model
+    const car_obj = try obj.Obj.from_file(alloc, "assets/sedan-sports.obj");
+
+    var vertecies = try alloc.alloc(VertexData, car_obj.faces.len);
+    defer alloc.free(vertecies);
+    var indicies = try alloc.alloc(u16, car_obj.faces.len);
+    defer alloc.free(indicies);
+
+    for (car_obj.faces, 0..) |face, i| {
+        vertecies[i] = .{
+            .position = car_obj.positions[face.pos],
+            .color = WHITE,
+            .uv = car_obj.uvs[face.uv],
+        };
+        indicies[i] = @intCast(i);
+    }
+
+    car_obj.deinit();
+
     // Creating vertex buffer and index buffer
-    const vertex_buffer_size = vertecies.len * @sizeOf(VertexData);
+    const vertex_buffer_size: u32 = @intCast(vertecies.len * @sizeOf(VertexData));
     const vertex_buffer = c.SDL_CreateGPUBuffer(gpu, &.{
         .usage = c.SDL_GPU_BUFFERUSAGE_VERTEX,
         .size = vertex_buffer_size,
     }) orelse return error.CreateVBufFailed;
-    const index_buffer_size = indicies.len * @sizeOf(u16);
+    const index_buffer_size: u32 = @intCast(indicies.len * @sizeOf(u16));
     const index_buffer = c.SDL_CreateGPUBuffer(gpu, &.{
         .usage = c.SDL_GPU_BUFFERUSAGE_INDEX,
         .size = index_buffer_size,
@@ -229,9 +229,9 @@ pub fn main() !void {
         );
 
         // - Copy
-        const vertex_bytes = std.mem.sliceAsBytes(&vertecies);
+        const vertex_bytes = std.mem.sliceAsBytes(vertecies);
         std.mem.copyForwards(u8, transfer_mem[0..vertex_bytes.len], vertex_bytes);
-        const index_bytes = std.mem.sliceAsBytes(&indicies);
+        const index_bytes = std.mem.sliceAsBytes(indicies);
         std.mem.copyForwards(u8, transfer_mem[vertex_bytes.len..buffer_size], index_bytes);
         c.SDL_UnmapGPUTransferBuffer(gpu, transfer_buffer);
 
@@ -345,7 +345,7 @@ pub fn main() !void {
         c.SDL_PushGPUVertexUniformData(cmd_buf, 0, &ubo, @sizeOf(UBO));
 
         // - - Draw Calls
-        c.SDL_DrawGPUIndexedPrimitives(render_pass, indicies.len, 1, 0, 0, 0);
+        c.SDL_DrawGPUIndexedPrimitives(render_pass, @intCast(indicies.len), 1, 0, 0, 0);
 
         // - End Render Pass
         c.SDL_EndGPURenderPass(render_pass);
@@ -358,4 +358,8 @@ pub fn main() !void {
         );
         try log.flush();
     }
+}
+
+test "recurse" {
+    std.testing.refAllDecls(@This());
 }
