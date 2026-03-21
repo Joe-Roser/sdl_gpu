@@ -16,6 +16,8 @@ const Mat4 = zalg.Mat4;
 const vert_shader: []const u8 = @embedFile("shaders/out/shader.vert.spv");
 const frag_shader: []const u8 = @embedFile("shaders/out/shader.frag.spv");
 
+const obj_path = "assets/sedan-sports.obj";
+
 const UBO = struct {
     mvp: Mat4,
 };
@@ -154,6 +156,8 @@ pub fn main() !void {
             .target_info = .{
                 .num_color_targets = 1,
                 .color_target_descriptions = &.{ .format = c.SDL_GetGPUSwapchainTextureFormat(gpu, window) },
+                .has_depth_stencil_target = true,
+                .depth_stencil_format = c.SDL_GPU_TEXTUREFORMAT_D24_UNORM,
             },
             .vertex_input_state = .{
                 .num_vertex_buffers = vertex_buf_descriptions.len,
@@ -161,26 +165,31 @@ pub fn main() !void {
                 .num_vertex_attributes = vertex_attrs.len,
                 .vertex_attributes = vertex_attrs,
             },
+            .depth_stencil_state = .{
+                .enable_depth_test = true,
+                .enable_depth_write = true,
+                .compare_op = c.SDL_GPU_COMPAREOP_LESS,
+            },
         };
         break :pipeline c.SDL_CreateGPUGraphicsPipeline(gpu, &pipeline_info) orelse return error.CreatePipelineFailed;
     };
 
     // Setting up the projection matrix
-    var w: i32 = undefined;
-    var h: i32 = undefined;
+    var window_w: i32 = undefined;
+    var window_h: i32 = undefined;
     try check_err(
-        c.SDL_GetWindowSize(window, &w, &h),
+        c.SDL_GetWindowSize(window, &window_w, &window_h),
     );
-    const x: f32 = @floatFromInt(w);
-    const y: f32 = @floatFromInt(h);
+    const x: f32 = @floatFromInt(window_w);
+    const y: f32 = @floatFromInt(window_h);
     const proj_mat = Mat4.perspective(70, x / y, 0.0001, 1000);
-    const trans_mat = Mat4.fromTranslate(.fromSlice(&.{ 0, 0, -2 }));
+    const trans_mat = Mat4.fromTranslate(.fromSlice(&.{ 0, -1, -3 }));
 
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
     // Making the object model
-    const car_obj = try obj.Obj.from_file(alloc, "assets/sedan-sports.obj");
+    const car_obj = try obj.Obj.from_file(alloc, obj_path);
 
     var vertecies = try alloc.alloc(VertexData, car_obj.faces.len);
     defer alloc.free(vertecies);
@@ -188,10 +197,11 @@ pub fn main() !void {
     defer alloc.free(indicies);
 
     for (car_obj.faces, 0..) |face, i| {
+        const uv = car_obj.uvs[face.uv];
         vertecies[i] = .{
             .position = car_obj.positions[face.pos],
             .color = WHITE,
-            .uv = car_obj.uvs[face.uv],
+            .uv = .fromSlice(&.{ uv.x(), 1 - uv.y() }),
         };
         indicies[i] = @intCast(i);
     }
@@ -209,10 +219,14 @@ pub fn main() !void {
         .usage = c.SDL_GPU_BUFFERUSAGE_INDEX,
         .size = index_buffer_size,
     }) orelse return error.CreateIBufFailed;
+
     var cobble_w: i32 = 0;
     var cobble_h: i32 = 0;
     var cobble_texture: *c.SDL_GPUTexture = undefined;
     defer c.SDL_ReleaseGPUTexture(gpu, cobble_texture);
+
+    var depth_texture: *c.SDL_GPUTexture = undefined;
+    defer c.SDL_ReleaseGPUTexture(gpu, depth_texture);
     {
         const buffer_size = index_buffer_size + vertex_buffer_size;
         // Upload data to VBuf
@@ -257,7 +271,16 @@ pub fn main() !void {
             .size = index_buffer_size,
         }, false);
 
-        cobble_texture = c.IMG_LoadGPUTexture(gpu, copy_pass, "assets/cobblestone.png", &cobble_w, &cobble_h) orelse return error.LoadTextureFailed;
+        cobble_texture = c.IMG_LoadGPUTexture(gpu, copy_pass, "assets/colormap.png", &cobble_w, &cobble_h) orelse return error.LoadTextureFailed;
+
+        depth_texture = c.SDL_CreateGPUTexture(gpu, &.{
+            .format = c.SDL_GPU_TEXTUREFORMAT_D24_UNORM,
+            .usage = c.SDL_GPU_TEXTUREUSAGE_DEPTH_STENCIL_TARGET,
+            .width = @intCast(window_w),
+            .height = @intCast(window_h),
+            .layer_count_or_depth = 1,
+            .num_levels = 1,
+        }) orelse return error.DepthTextureFail;
 
         // - End Copy Pass and Submit
         c.SDL_EndGPUCopyPass(copy_pass);
@@ -317,7 +340,12 @@ pub fn main() !void {
             .clear_color = .{ .r = 0, .g = 0.2, .b = 0.4, .a = 1 },
             .store_op = c.SDL_GPU_STOREOP_STORE,
         };
-        const render_pass = c.SDL_BeginGPURenderPass(cmd_buf, &colour_target_info, 1, null);
+        const depth_target_info: c.SDL_GPUDepthStencilTargetInfo = .{
+            .texture = depth_texture,
+            .load_op = c.SDL_GPU_LOADOP_CLEAR,
+            .clear_depth = 1,
+        };
+        const render_pass = c.SDL_BeginGPURenderPass(cmd_buf, &colour_target_info, 1, &depth_target_info);
 
         // - Draw Stuff
         // - - Bind Pipeline

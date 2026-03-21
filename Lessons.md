@@ -109,4 +109,16 @@ f - The faces, given by indexing the vertex and texture coordinates (1 indexed)
 To render the file, transform into the vertex data we need and index array.
 Then the obj file can be dropped.
 
+# Lesson 7
+The obj we rendered last lesson looked weird. Firstly, the texture was the wrong one. Secondly, the y-axis of the uv coordinates in the obj file was flipped.
+Finally, the depths were all off. This is because we just drew ontop of what was drawn previously each time with no regard for the z depth.
 
+The first step is to add a depth stencil in the pipeline
+In the stencil state, we want depth tests and we want them compared.
+
+We then create the depth texture with the window dimensions, number of levels, format, and other info.
+
+Finally, in the render pass, we add depth stencil target info.
+This gives the correct depth texture, the depth op clear for each successive render, and the clear depth of 1, or the back of the scene.
+
+This should fix all the issues.
