@@ -221,31 +221,6 @@ fn check_err(b: bool) !void {
     return error.SDL_Error;
 }
 
-// :alloc
-var nalloc: usize = 0;
-fn wrap_alloc() !void {
-    const wa = struct {
-        fn malloc(size: usize) callconv(.c) ?*anyopaque {
-            nalloc += 1;
-            return c.malloc(size);
-        }
-        fn calloc(num: usize, size: usize) callconv(.c) ?*anyopaque {
-            nalloc += 1;
-            return c.calloc(num, size);
-        }
-        fn realloc(ptr: ?*anyopaque, new_size: usize) callconv(.c) ?*anyopaque {
-            return c.realloc(ptr, new_size);
-        }
-        fn free(ptr: ?*anyopaque) callconv(.c) void {
-            nalloc -= 1;
-            c.free(ptr);
-        }
-    };
-    try check_err(
-        c.SDL_SetMemoryFunctions(&wa.malloc, &wa.calloc, &wa.realloc, &wa.free),
-    );
-}
-
 // Wrapping the logger to allow SDL to use it instead
 fn wrapped_log(userdata: ?*anyopaque, category: c_int, priority: c.SDL_LogPriority, msg: [*c]const u8) callconv(.c) void {
     const level = switch (priority) {
@@ -361,8 +336,6 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const alloc = gpa.allocator();
 
-    try wrap_alloc();
-
     // Setting up logging
     var stdout: std.fs.File = .stdout();
     var stdout_buf: [1024]u8 = undefined;
@@ -373,8 +346,6 @@ pub fn main() !void {
 
     var state: AppState = try .init(&log);
     defer state.deinit();
-
-    defer state.log.info("SDL allocations: {}", .{nalloc}) catch {};
 
     const pipeline = try create_gpu_pipeline(state);
     defer c.SDL_ReleaseGPUGraphicsPipeline(state.gpu, pipeline);
