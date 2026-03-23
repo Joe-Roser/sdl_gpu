@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const zul = @import("zul");
 const zalg = @import("zalg");
 const obj_zig = @import("obj.zig");
@@ -203,7 +204,7 @@ const Model = struct {
         };
     }
 
-    fn deinit(self: *Model, state: AppState) void {
+    fn deinit(self: *const Model, state: AppState) void {
         c.SDL_ReleaseGPUBuffer(state.gpu, self.vertex_buffer);
         c.SDL_ReleaseGPUBuffer(state.gpu, self.index_buffer);
         c.SDL_ReleaseGPUTexture(state.gpu, self.texture);
@@ -219,6 +220,36 @@ fn check_err(b: bool) !void {
     if (b) return;
     std.log.err("SDL: {s}\r\n", .{c.SDL_GetError()});
     return error.SDL_Error;
+}
+
+// :alloc
+var nalloc: usize = 0;
+fn wrap_alloc() !void {
+    const wa = struct {
+        fn malloc(size: usize) callconv(.c) ?*anyopaque {
+            nalloc += 1;
+            return c.malloc(size);
+        }
+        fn calloc(num: usize, size: usize) callconv(.c) ?*anyopaque {
+            nalloc += 1;
+            return c.calloc(num, size);
+        }
+        fn realloc(ptr: ?*anyopaque, new_size: usize) callconv(.c) ?*anyopaque {
+            if (ptr == null and new_size > 0) {
+                nalloc += 1;
+            } else if (ptr != null and new_size == 0) {
+                nalloc -= 1;
+            }
+            return c.realloc(ptr, new_size);
+        }
+        fn free(ptr: ?*anyopaque) callconv(.c) void {
+            nalloc -= 1;
+            c.free(ptr);
+        }
+    };
+    try check_err(
+        c.SDL_SetMemoryFunctions(&wa.malloc, &wa.calloc, &wa.realloc, &wa.free),
+    );
 }
 
 // Wrapping the logger to allow SDL to use it instead
@@ -344,6 +375,10 @@ pub fn main() !void {
     var log: Logger = .init(&stdout_writer.interface);
     defer log.flush() catch {};
 
+    // Used to track SDL allocations through the process
+    // try wrap_alloc();
+    // defer log.info("SDL allocs: {}", .{nalloc}) catch {};
+
     var state: AppState = try .init(&log);
     defer state.deinit();
 
@@ -360,6 +395,7 @@ pub fn main() !void {
     var rotation: f32 = 0.0; // In Degrees
 
     const model: Model = try .init(alloc, state, OBJ_PATH, TEX_PATH);
+    defer model.deinit(state);
 
     try state.log.info("Setup complete", .{});
     try state.log.flush();
