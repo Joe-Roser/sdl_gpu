@@ -20,6 +20,18 @@ const TEX_PATH = "assets/colormap.png";
 const vert_shader: []const u8 = @embedFile("shaders/out/shader.vert.spv");
 const frag_shader: []const u8 = @embedFile("shaders/out/shader.frag.spv");
 
+var keydown: [513]u1 = .{0} ** 513;
+const Look = struct {
+    yaw: f32,
+    pitch: f32,
+};
+var look: Look = .{ .pitch = 0, .yaw = 0 };
+
+const WHITE: Vec4 = .fromSlice(&.{ 1, 1, 1, 1 });
+const DEPTH_FORMAT = c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
+const SPEED = 3;
+const MOUSE_SENSITIVITY = 0.3;
+
 const UBO = struct { mvp: Mat4 };
 const VertexData = struct { position: Vec3, color: Vec4, uv: Vec2 };
 const Window = struct {
@@ -41,6 +53,10 @@ const Window = struct {
         c.SDL_DestroyWindow(self.ptr);
     }
 };
+const Camera = struct {
+    position: Vec3,
+    target: Vec3,
+};
 // :appstate
 const AppState = struct {
     window: Window,
@@ -48,6 +64,9 @@ const AppState = struct {
     log: *Logger,
     sampler: *c.SDL_GPUSampler,
 
+    camera: Camera,
+
+    // :init
     fn init(log: *Logger) !AppState {
         // Giving logging to SDL
         c.SDL_SetLogPriorities(c.SDL_LOG_PRIORITY_VERBOSE);
@@ -68,11 +87,20 @@ const AppState = struct {
 
         const sampler = c.SDL_CreateGPUSampler(gpu, &.{}) orelse return error.CreateSamplerFailed;
 
+        // Causes weird bugs. Check out in future
+        // try check_err(
+        //     c.SDL_SetWindowRelativeMouseMode(window.ptr, true),
+        // );
+
         return .{
             .window = window,
             .gpu = gpu,
             .log = log,
             .sampler = sampler,
+            .camera = .{
+                .position = .fromSlice(&.{ 0, 1, 3 }),
+                .target = .fromSlice(&.{ 0, 1, 0 }),
+            },
         };
     }
 
@@ -212,9 +240,6 @@ const Model = struct {
     }
 };
 
-const WHITE: Vec4 = .fromSlice(&.{ 1, 1, 1, 1 });
-const DEPTH_FORMAT = c.SDL_GPU_TEXTUREFORMAT_D24_UNORM;
-
 // Helper function to check all SDL errors
 fn check_err(b: bool) !void {
     if (b) return;
@@ -298,7 +323,7 @@ fn load_shader(gpu: *c.SDL_GPUDevice, code: []const u8, stage: c.SDL_GPUShaderSt
     return c.SDL_CreateGPUShader(gpu, &create_info) orelse error.CreateShaderFailed;
 }
 
-fn create_gpu_pipeline(state: AppState) !*c.SDL_GPUGraphicsPipeline {
+fn setup_pipeline(state: AppState) !*c.SDL_GPUGraphicsPipeline {
     // Create Shaders
     const vertex_shader = try load_shader(state.gpu, vert_shader, c.SDL_GPU_SHADERSTAGE_VERTEX, 1, 0);
     const fragment_shader = try load_shader(state.gpu, frag_shader, c.SDL_GPU_SHADERSTAGE_FRAGMENT, 0, 1);
@@ -355,8 +380,39 @@ fn create_gpu_pipeline(state: AppState) !*c.SDL_GPUGraphicsPipeline {
             .enable_depth_write = true,
             .compare_op = c.SDL_GPU_COMPAREOP_LESS,
         },
+        .rasterizer_state = .{
+            .cull_mode = c.SDL_GPU_CULLMODE_BACK,
+        },
     };
     return c.SDL_CreateGPUGraphicsPipeline(state.gpu, &pipeline_info) orelse return error.CreatePipelineFailed;
+}
+
+fn update_camera(state: *AppState, dt: f32, mouse_move: Vec2) void {
+    // Get movement inputs
+    const forewards_scale = @as(f32, @floatFromInt(keydown[c.SDL_SCANCODE_W])) - @as(f32, @floatFromInt(keydown[c.SDL_SCANCODE_S]));
+    const right_scale = @as(f32, @floatFromInt(keydown[c.SDL_SCANCODE_D])) - @as(f32, @floatFromInt(keydown[c.SDL_SCANCODE_A]));
+
+    const look_input = mouse_move.scale(MOUSE_SENSITIVITY);
+
+    look.pitch = std.math.clamp(look.pitch - look_input.y(), -89, 89);
+    look.yaw = std.math.wrap(look.yaw - look_input.x(), 360);
+
+    const look_mat = zalg.Mat3.fromEulerAngles(.fromSlice(&.{ look.pitch, look.yaw, 0 }));
+
+    const forwards: Vec3 = look_mat.mulByVec3(.fromSlice(&.{ 0, 0, -1 }));
+    const right = look_mat.mulByVec3(.fromSlice(&.{ 1, 0, 0 }));
+
+    // Calculate movement direction
+
+    // Calculate movement motion
+    var move_input = forwards.scale(forewards_scale).add(right.scale(right_scale));
+    move_input.data[1] = 0;
+    if (!move_input.eql(.zero())) move_input = move_input.norm().scale(SPEED * dt);
+
+    // Apply movement
+    state.camera.position = state.camera.position.add(move_input);
+    // Update targe
+    state.camera.target = state.camera.position.add(forwards);
 }
 
 // :main
@@ -382,14 +438,13 @@ pub fn main() !void {
     var state: AppState = try .init(&log);
     defer state.deinit();
 
-    const pipeline = try create_gpu_pipeline(state);
+    const pipeline = try setup_pipeline(state);
     defer c.SDL_ReleaseGPUGraphicsPipeline(state.gpu, pipeline);
 
     // Setting up the projection matrix
     const x: f32 = @floatFromInt(state.window.width);
     const y: f32 = @floatFromInt(state.window.height);
     const proj_mat = Mat4.perspective(70, x / y, 0.0001, 1000);
-    const trans_mat = Mat4.fromTranslate(.fromSlice(&.{ 0, -1, -3 }));
 
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
@@ -408,23 +463,40 @@ pub fn main() !void {
         const dt = @as(f32, @floatFromInt(this_ticks - last_ticks)) / 1000;
         last_ticks = this_ticks;
 
-        // Process Events
+        var mouse_move: Vec2 = .zero();
+
+        // :events
         var event: c.SDL_Event = undefined;
         while (c.SDL_PollEvent(&event)) {
             switch (event.type) {
                 c.SDL_EVENT_QUIT => break :mainloop,
+                c.SDL_EVENT_KEY_DOWN => {
+                    keydown[event.key.scancode] = 1;
+                },
+                c.SDL_EVENT_KEY_UP => {
+                    keydown[event.key.scancode] = 0;
+                },
+                c.SDL_EVENT_MOUSE_MOTION => {
+                    mouse_move = mouse_move.add(.fromSlice(&.{ event.motion.xrel, event.motion.yrel }));
+                },
                 else => continue,
             }
         }
 
+        update_camera(&state, dt, mouse_move);
+
         rotation += dt * rotation_speed;
 
-        const model_mat = trans_mat.mul(
-            Mat4.fromRotation(rotation, .fromSlice(&[_]f32{ 0, 1, 0 })),
-        );
+        const view_mat = Mat4.lookAt(state.camera.position, state.camera.target, .up());
+        const model_mat =
+            Mat4.fromTranslate(.zero()).mul(
+                Mat4.fromRotation(rotation, .up()),
+            );
         const ubo: UBO = .{
             .mvp = proj_mat.mul(
-                model_mat,
+                view_mat.mul(
+                    model_mat,
+                ),
             ),
         };
 

@@ -122,3 +122,19 @@ Finally, in the render pass, we add depth stencil target info.
 This gives the correct depth texture, the depth op clear for each successive render, and the clear depth of 1, or the back of the scene.
 
 This should fix all the issues.
+
+# Lesson 8
+Adding camera movement and rotation.
+First, added a keyboard to track key ups and downs. Also aded mouse move detection and global mouse state.
+Added a camera to state to hold the camera position and angle.
+Recieve and accumulate mouse input, and the pass to the update camera. Record keyboard state.
+- Calculate the movement inputs
+- Calculate the mouse inputs
+- Change camera yaw and pitch from mouse inputs
+- Calculate the look matrix from pitch and yaw.
+- Calculate the forwards and right vectors based on camera direction
+- Calculate the movements based on the the forwards and right vectors, and the movement inputs
+- Update camera position and target
+
+Also optimised drawing by culling back faces.
+
