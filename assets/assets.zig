@@ -5,6 +5,7 @@ pub const obj = struct {
 };
 
 pub const shaders = struct {
+    pub const path = "assets/shaders/";
     pub const vert = @embedFile("shaders/out/shader.vert.spv");
     pub const frag = @embedFile("shaders/out/shader.frag.spv");
 };
