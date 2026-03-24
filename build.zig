@@ -6,12 +6,14 @@ pub fn build(b: *Build) void {
     const opt = b.standardOptimizeOption(.{});
 
     const with_shaders = b.option(bool, "sh", "Build with shaders") orelse false;
+    const build_shaders = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
 
     const zul = b.dependency("zul", .{});
-
     const zalg = b.dependency("zalg", .{});
 
-    const build_shaders = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
+    const shaders = b.createModule(.{
+        .root_source_file = b.path("assets/assets.zig"),
+    });
 
     const exe = b.addExecutable(.{
         .name = "app",
@@ -22,12 +24,14 @@ pub fn build(b: *Build) void {
             .imports = &.{
                 .{ .module = zul.module("zul"), .name = "zul" },
                 .{ .module = zalg.module("zalgebra"), .name = "zalg" },
+                .{ .module = shaders, .name = "assets" },
             },
         }),
     });
     exe.root_module.linkSystemLibrary("SDL3", .{});
     exe.root_module.linkSystemLibrary("SDL3_image", .{});
     exe.root_module.link_libc = true;
+    exe.addIncludePath(b.path("assets/"));
     b.default_step.dependOn(&exe.step);
 
     // Building shaders depends on compile flag

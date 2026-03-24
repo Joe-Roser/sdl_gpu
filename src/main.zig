@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 const zul = @import("zul");
 const zalg = @import("zalg");
 const obj_zig = @import("obj.zig");
+const assets = @import("assets");
 pub const c = @cImport({
     @cInclude("SDL3/SDL.h");
     @cInclude("SDL3_image/SDL_image.h");
@@ -15,10 +16,8 @@ const Vec3 = zalg.Vec3;
 const Vec4 = zalg.Vec4;
 const Mat4 = zalg.Mat4;
 
-const OBJ_PATH = "assets/sedan-sports.obj";
-const TEX_PATH = "assets/colormap.png";
-const vert_shader: []const u8 = @embedFile("shaders/out/shader.vert.spv");
-const frag_shader: []const u8 = @embedFile("shaders/out/shader.frag.spv");
+const vert_shader: []const u8 = assets.shaders.vert;
+const frag_shader: []const u8 = assets.shaders.frag;
 
 var keydown: [513]u1 = .{0} ** 513;
 const Look = struct {
@@ -449,7 +448,7 @@ pub fn main() !void {
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
-    const model: Model = try .init(alloc, state, OBJ_PATH, TEX_PATH);
+    const model: Model = try .init(alloc, state, assets.obj.tractor_police_path, assets.textures.colormap_path);
     defer model.deinit(state);
 
     try state.log.info("Setup complete", .{});
