@@ -10,11 +10,14 @@
             .url = "git+https://github.com/kooparse/zalgebra#fe19b7816f03d86d56d4fa62f943664edf5d367f",
             .hash = "zalgebra-0.0.0-aaiVSrp2AQBLjd3lvhR0ILaVDHeqOpwNFCp0ZJHj0xhk",
         },
+        .shader_tools = .{
+            .url = "git+https://github.com/Joe-Roser/shader_tools.zig.git#383a0c993669f505fae7929b08807ace1b9a7b28",
+            .hash = "shader_tools-0.0.1-UF2nvLIFAACcgynFRlWfL0YPpos6lxt45OlW-GXsXj6c",
+        },
     },
     .minimum_zig_version = "0.15.2",
     .paths = .{
         "build.zig",
-        "build_shaders.zig",
         "src",
     },
     .fingerprint = 0x5eedfcdc9274925d,

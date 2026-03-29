@@ -4,11 +4,7 @@ const zul = @import("zul");
 const zalg = @import("zalg");
 const obj_zig = @import("obj.zig");
 const assets = @import("assets");
-pub const c = @cImport({
-    @cInclude("SDL3/SDL.h");
-    @cInclude("SDL3_image/SDL_image.h");
-    @cInclude("stdlib.h");
-});
+const c = @import("c.zig").c;
 
 const Logger = zul.monitoring.Logger;
 const Vec2 = zalg.Vec2;
@@ -276,6 +272,7 @@ fn wrap_alloc() !void {
     );
 }
 
+// :log
 // Wrapping the logger to allow SDL to use it instead
 fn wrapped_log(userdata: ?*anyopaque, category: c_int, priority: c.SDL_LogPriority, msg: [*c]const u8) callconv(.c) void {
     const level = switch (priority) {
@@ -533,12 +530,6 @@ pub fn main() !void {
             .buffer = model.vertex_buffer,
         }, 1);
 
-        // Bind the texture sampler
-        c.SDL_BindGPUFragmentSamplers(render_pass, 0, &.{
-            .texture = model.texture,
-            .sampler = state.sampler,
-        }, 1);
-
         // Bind Index Buffer
         c.SDL_BindGPUIndexBuffer(render_pass, &.{
             .offset = 0,
@@ -547,6 +538,12 @@ pub fn main() !void {
 
         // - - Bind Uniform Data
         c.SDL_PushGPUVertexUniformData(cmd_buf, 0, &ubo, @sizeOf(UBO));
+
+        // Bind the texture sampler
+        c.SDL_BindGPUFragmentSamplers(render_pass, 0, &.{
+            .texture = model.texture,
+            .sampler = state.sampler,
+        }, 1);
 
         // - - Draw Calls
         c.SDL_DrawGPUIndexedPrimitives(render_pass, @intCast(model.index_buffer_len), 1, 0, 0, 0);

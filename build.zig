@@ -1,17 +1,23 @@
 const std = @import("std");
-const Build = std.Build;
+const ShaderBuilder = @import("shader_tools").ShaderBuilder;
 
-pub fn build(b: *Build) void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const opt = b.standardOptimizeOption(.{});
 
-    const with_shaders = b.option(bool, "sh", "Build with shaders") orelse false;
-    const build_shaders = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
+    // const with_shaders = b.option(bool, "sh", "Build with shaders") orelse false;
+    // const build_shaders = b.addSystemCommand(&.{ "zig", "run", "build_shaders.zig" });
 
     const zul = b.dependency("zul", .{});
     const zalg = b.dependency("zalg", .{});
 
-    const shaders = b.createModule(.{
+    const shader_builder: ShaderBuilder = .init(.{});
+    const shader_flag = b.option(bool, "sh", "build shaders") orelse false;
+    if (shader_flag) {
+        shader_builder.build_dir(b, .{ .src_dir = "assets/shaders/src/", .out_dir = "assets/shaders/out/" }) catch return;
+    }
+
+    const assets = b.createModule(.{
         .root_source_file = b.path("assets/assets.zig"),
     });
 
@@ -24,7 +30,7 @@ pub fn build(b: *Build) void {
             .imports = &.{
                 .{ .module = zul.module("zul"), .name = "zul" },
                 .{ .module = zalg.module("zalgebra"), .name = "zalg" },
-                .{ .module = shaders, .name = "assets" },
+                .{ .module = assets, .name = "assets" },
             },
         }),
     });
@@ -35,7 +41,7 @@ pub fn build(b: *Build) void {
     b.default_step.dependOn(&exe.step);
 
     // Building shaders depends on compile flag
-    if (with_shaders) exe.step.dependOn(&build_shaders.step);
+    // if (with_shaders) exe.step.dependOn(&build_shaders.step);
 
     const run_step = b.step("run", "run the app");
     const run_exe = b.addRunArtifact(exe);
@@ -44,7 +50,4 @@ pub fn build(b: *Build) void {
     const test_step = b.step("test", "test the app");
     const test_exe = b.addTest(.{ .root_module = exe.root_module });
     test_step.dependOn(&test_exe.step);
-
-    const shader_step = b.step("shaders", "build all shaders");
-    shader_step.dependOn(&build_shaders.step);
 }
