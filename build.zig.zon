@@ -2,17 +2,17 @@
     .name = .sdl_gpu,
     .version = "0.0.1",
     .dependencies = .{
-        .zul = .{
-            .url = "../zul/",
-            .hash = "zul-0.0.0-7StIXosdAAAJhDev1ZrzHMaw4UpL6ITMWSZqt0J0nq1T",
-        },
         .zalg = .{
             .url = "git+https://github.com/kooparse/zalgebra#fe19b7816f03d86d56d4fa62f943664edf5d367f",
             .hash = "zalgebra-0.0.0-aaiVSrp2AQBLjd3lvhR0ILaVDHeqOpwNFCp0ZJHj0xhk",
         },
+        .zul = .{
+            .url = "../zul",
+            .hash = "zul-0.0.0-7StIXj0eAADzWGmlkhzPn-DgR7y09U5XsTyVyUWqsQGh",
+        },
         .shader_tools = .{
-            .url = "git+https://github.com/Joe-Roser/shader_tools.zig.git#383a0c993669f505fae7929b08807ace1b9a7b28",
-            .hash = "shader_tools-0.0.1-UF2nvLIFAACcgynFRlWfL0YPpos6lxt45OlW-GXsXj6c",
+            .url = "../shader_tools.zig",
+            .hash = "shader_tools-0.0.1-UF2nvFWVtgsyUOG75WT8V0b7OSCc8P3gIc-dchGttsoe",
         },
     },
     .minimum_zig_version = "0.15.2",

@@ -1,10 +1,11 @@
 const std = @import("std");
 const builtin = @import("builtin");
+const Io = std.Io;
 const zul = @import("zul");
 const zalg = @import("zalg");
 const obj_zig = @import("obj.zig");
 const assets = @import("assets");
-const c = @import("c.zig").c;
+const c = @import("c");
 
 const Logger = zul.monitoring.Logger;
 const Vec2 = zalg.Vec2;
@@ -118,9 +119,9 @@ const Model = struct {
     alloc: std.mem.Allocator,
     index_buffer_len: u32,
 
-    fn init(alloc: std.mem.Allocator, state: AppState, mesh_file: []const u8, texture_file: []const u8) !Model {
+    fn init(io: Io, alloc: std.mem.Allocator, state: AppState, mesh_file: []const u8, texture_file: []const u8) !Model {
         // Making the object model
-        const obj = try obj_zig.Obj.from_file(alloc, mesh_file);
+        const obj = try obj_zig.Obj.from_file(io, alloc, mesh_file);
 
         var vertecies = try alloc.alloc(VertexData, obj.faces.len);
         var indicies = try alloc.alloc(u16, obj.faces.len);
@@ -414,15 +415,14 @@ fn update_camera(state: *AppState, dt: f32, mouse_move: Vec2) void {
 // :main
 //
 //
-pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = gpa.deinit();
-    const alloc = gpa.allocator();
+pub fn main(init: std.process.Init) !void {
+    const alloc = init.gpa;
+    const io = init.io;
 
     // Setting up logging
-    var stdout: std.fs.File = .stdout();
+    var stdout: std.Io.File = .stdout();
     var stdout_buf: [1024]u8 = undefined;
-    var stdout_writer = stdout.writer(&stdout_buf);
+    var stdout_writer = stdout.writer(io, &stdout_buf);
 
     var log: Logger = .init(&stdout_writer.interface);
     defer log.flush() catch {};
@@ -445,7 +445,7 @@ pub fn main() !void {
     const rotation_speed = 90;
     var rotation: f32 = 0.0; // In Degrees
 
-    const model: Model = try .init(alloc, state, assets.obj.tractor_police_path, assets.textures.colormap_path);
+    const model: Model = try .init(io, alloc, state, assets.obj.tractor_police_path, assets.textures.colormap_path);
     defer model.deinit(state);
 
     try state.log.info("Setup complete", .{});

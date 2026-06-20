@@ -1,4 +1,6 @@
 const std = @import("std");
+const Io = std.Io;
+const Alloc = std.mem.Allocator;
 const zalg = @import("zalg");
 
 const Vec2 = zalg.Vec2;
@@ -11,18 +13,18 @@ pub const Obj = struct {
 
     alloc: std.mem.Allocator,
 
-    pub fn from_file(alloc: std.mem.Allocator, filename: []const u8) !Obj {
-        const obj_file = try std.fs.cwd().openFile(filename, .{});
-        defer obj_file.close();
+    pub fn from_file(io: Io, alloc: Alloc, filename: []const u8) !Obj {
+        const obj_file = try Io.Dir.cwd().openFile(io, filename, .{});
+        defer obj_file.close(io);
 
         var buf: [1024]u8 = undefined;
-        var reader = obj_file.reader(&buf);
+        var reader = obj_file.reader(io, &buf);
         const r = &reader.interface;
 
         return from_reader(alloc, r);
     }
 
-    pub fn from_reader(alloc: std.mem.Allocator, r: *std.Io.Reader) !Obj {
+    pub fn from_reader(alloc: Alloc, r: *std.Io.Reader) !Obj {
         var positions = try std.ArrayList(Vec3).initCapacity(alloc, 128);
         var uvs = try std.ArrayList(Vec2).initCapacity(alloc, 128);
         var faces = try std.ArrayList(ObjFaceIndex).initCapacity(alloc, 128);
